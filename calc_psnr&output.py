@@ -4,6 +4,7 @@ import numpy as np
 
 from dataset import *
 from models import Generator
+import torch
 
 parser = argparse.ArgumentParser(description='PyTorch Super Res Example')
 parser.add_argument('--input_image', type=str, default='datasets/test/test.png', help='input image to use')
