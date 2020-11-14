@@ -10,13 +10,16 @@ import torch.optim as optim
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import torchvision
+import visdom
+import numpy as np
 
 from models import Generator, Discriminator, FeatureExtractor
 from dataset import get_training_set
 
 start_time = time.perf_counter()
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"  # use the chosen gpu
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # use the chosen gpu
 # torch.cuda.set_device(2)  # use the chosen gpu
+vis = visdom.Visdom(env='SRGAN')
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--batchSize', type=int, default=16, help='input batch size')  # default = 16
@@ -79,7 +82,7 @@ optim_generator = optim.Adam(generator.parameters(), lr=opt.generatorLR)
 optim_discriminator = optim.Adam(discriminator.parameters(), lr=opt.discriminatorLR)
 
 print('Generator pre-training')
-for epoch in range(2):
+for epoch_p in range(2):
     mean_generator_content_loss = 0.0
 
     for i, data in enumerate(dataloader):
@@ -103,9 +106,9 @@ for epoch in range(2):
         optim_generator.step()
         # ######## Status and display #########
         sys.stdout.write('\r[%d/%d][%d/%d] Generator_MSE_Loss: %.4f' % (
-            epoch, 2, i, len(dataloader), generator_content_loss.item()))
+            epoch_p, 2, i, len(dataloader), generator_content_loss.item()))
     sys.stdout.write('\r[%d/%d][%d/%d] Generator_MSE_Loss: %.4f\n' % (
-        epoch, 2, i, len(dataloader), mean_generator_content_loss / len(dataloader)))
+        epoch_p, 2, i, len(dataloader), mean_generator_content_loss / len(dataloader)))
 
 torch.save(generator.state_dict(), '%s/generator_pretrain.pth' % opt.out)
 
@@ -153,13 +156,14 @@ for epoch in range(opt.nEpochs):
 
         real_features = feature_extractor(high_res_real).data
         fake_features = feature_extractor(high_res_fake)
-
+        # content loss
         generator_content_loss = content_criterion(high_res_fake, high_res_real) + 0.006 * content_criterion(
             fake_features, real_features)
         mean_generator_content_loss += generator_content_loss.item()
+        # adversarial loss
         generator_adversarial_loss = adversarial_criterion(discriminator(high_res_fake), ones_const)
         mean_generator_adversarial_loss += generator_adversarial_loss.item()
-
+        # total loss
         generator_total_loss = generator_content_loss + 1e-3 * generator_adversarial_loss
         mean_generator_total_loss += generator_total_loss.item()
 
@@ -171,20 +175,55 @@ for epoch in range(opt.nEpochs):
                 epoch, opt.nEpochs, i, len(dataloader),
                 discriminator_loss.item(), generator_content_loss.item(), generator_adversarial_loss.item(),
                 generator_total_loss.item()))
+
+        vis.line(Y=np.array([generator_total_loss.item()]), X=np.array([i]),
+                 win='generator_total_loss',
+                 opts=dict(title='generator_total_loss'),
+                 update='append'
+                 )
+        vis.line(np.array([generator_content_loss.item()]), np.array([i])
+                 , win='generator_content_loss',
+                 opts=dict(title='generator_content_loss'),
+                 update='append')
+        vis.line(np.array([generator_adversarial_loss.item()]), np.array([i])
+                 , win='generator_adversarial_loss',
+                 opts=dict(title='generator_adversarial_loss'),
+                 update='append')
+
+    mean_discriminator_loss = mean_discriminator_loss / len(dataloader)
+    mean_generator_content_loss = mean_generator_content_loss / len(dataloader)
+    mean_generator_adversarial_loss = mean_generator_adversarial_loss / len(dataloader)
     mean_generator_total_loss = mean_generator_total_loss / len(dataloader)
+
     sys.stdout.write(
         '\r[%d/%d][%d/%d] Discriminator_Loss: %.4f Generator_Loss (Content/Advers/Total): %.4f/%.4f/%.4f\n' % (
             epoch, opt.nEpochs, i, len(dataloader),
-            mean_discriminator_loss / len(dataloader), mean_generator_content_loss / len(dataloader),
-            mean_generator_adversarial_loss / len(dataloader), mean_generator_total_loss))
+            mean_discriminator_loss, mean_generator_content_loss,
+            mean_generator_adversarial_loss, mean_generator_total_loss))
 
-    if mean_generator_total_loss < min_total_loss:
-        min_total_loss = mean_generator_total_loss
-        torch.save(generator.state_dict(),
-                   '{}g_minloss{:.8f}epoch{}.pth'.format(opt.out, mean_generator_total_loss, epoch))
+    # if mean_generator_total_loss < min_total_loss:
+    #     min_total_loss = mean_generator_total_loss
+    # torch.save(generator.state_dict(),
+    #            '{}g_minloss{:.8f}epoch{}.pth'.format(opt.out, mean_generator_total_loss, epoch))
+    #
+    # torch.save(generator.state_dict(), '{}g_epoch_{}.pth'.format(opt.out, epoch))
+    # torch.save(discriminator.state_dict(), '{}d_epoch_{}.pth'.format(opt.out, epoch))
 
-    torch.save(generator.state_dict(), '{}g_epoch_{}.pth'.format(opt.out, epoch))
-    torch.save(discriminator.state_dict(), '{}d_epoch_{}.pth'.format(opt.out, epoch))
+    vis.line(Y=np.array([mean_generator_total_loss]), X=np.array([epoch]),
+             win='mean_generator_total_loss',
+             opts=dict(title='mean_generator_total_loss'),
+             update='append'
+             )
+    vis.line(np.array([mean_generator_content_loss]), np.array([epoch])
+             , win='mean_generator_content_loss',
+             opts=dict(title='mean_generator_content_loss'),
+             update='append')
+    vis.line(np.array([mean_generator_adversarial_loss]), np.array([epoch])
+             , win='mean_generator_adversarial_loss',
+             opts=dict(title='mean_generator_adversarial_loss'),
+             update='append')
 
 end_time = time.perf_counter()
 print("Running time: ", (end_time - start_time) / 60)
+
+# ssh -L 8097:127.0.0.1:8097 zhaohengrun@192.168.1.229
