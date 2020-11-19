@@ -15,6 +15,7 @@ Visdom 0.1.8.9<br/>
 使用`utils/`目录下的`generate_train.m`制作训练数据集<br/>
 使用`utils/`目录下的`make_dataset.m`制作测试数据集	<br/>
 生成的训练，测试数据集图片分别保存在`datasets/train/`，`datasets/test/`目录下	<br/>
+数据集内图片个数需是batch_size的整数倍<br/>
 ### Train
 运行`python train.py`进行训练	<br/>
 模型保存在`checkpoints/`目录下	<br/>
